@@ -1,0 +1,7 @@
+.vercel
+.vercel/**
+.venv
+__pycache__
+*.pyc
+.git/**
+.venv/**
