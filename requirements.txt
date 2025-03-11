@@ -1,6 +1,5 @@
 fastapi
 uvicorn[standard]
-gunicorn
 pandas
 requests
 python-dotenv
