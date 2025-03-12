@@ -1,5 +1,5 @@
-# src/data_processing.py
 import pandas as pd
+import numpy as np
 
 class DataProcessing:
     def __init__(self, csv_path):
@@ -13,10 +13,17 @@ class DataProcessing:
         self.df["High_Low_Diff"] = self.df["High"] - self.df["Low"]
         self.df["Open_Close_Diff"] = self.df["Open"] - self.df["y"]
         self.df["Average_Price"] = (self.df["High"] + self.df["Low"] + self.df["y"]) / 3
-        self.df["Volume"] = self.df["Volume"] #keep the volume column as is.
+        self.df["Volume"] = self.df["Volume"]  # Keep the volume column as is.
+
+    def clean_data(self):
+        # Remove rows with NaN or infinity in the target column (y)
+        self.df = self.df.replace([np.inf, -np.inf], np.nan)  # Replace infinity with NaN
+        self.df = self.df.dropna(subset=["y"])  # Drop rows where 'y' is NaN
+        return self.df
 
     def process_data(self):
         self.add_features()
+        self.clean_data()  # Clean the data before processing
         self.df.index = pd.to_datetime(self.df.index)
         self.df.reset_index(inplace=True)
         return self.df

@@ -1,6 +1,6 @@
 # src/main.py
 import os
-import io
+import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 from fastapi import FastAPI
@@ -25,6 +25,14 @@ for path in config["paths"].values():
     os.makedirs(path, exist_ok=True)
 
 
+def download_and_process_data(symbol, start_date, end_date, output_dir):
+    yfinance_data = YFinanceIngestionData(symbol, start_date, end_date, output_dir)
+    raw_data = yfinance_data.fetch_data()
+    processed_ingestion_data = yfinance_data.process_data(raw_data)
+    yfinance_data.save_to_csv(processed_ingestion_data)
+    return processed_ingestion_data
+
+
 @app.get("/forecast/{symbol}")
 async def forecast_symbol(symbol: str):
     """
@@ -34,20 +42,26 @@ async def forecast_symbol(symbol: str):
         # Stage 1: Data Ingestion
         print("Data Ingestion started")
         end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=1800)).strftime("%Y-%m-%d") # default for 5 years
+        start_date = (datetime.now() - timedelta(days=1800)).strftime("%Y-%m-%d")  # Default for 5 years
 
         output_dir = config["paths"]["artifacts_dir"]
 
-        yfinance_data = YFinanceIngestionData(symbol, start_date, end_date, output_dir)
-        raw_data = yfinance_data.fetch_data()
-        processed_ingestion_data = yfinance_data.process_data(raw_data)
-        yfinance_data.save_to_csv(processed_ingestion_data)
+        # Try downloading 5 years of data
+        processed_ingestion_data = download_and_process_data(symbol, start_date, end_date, output_dir)
 
         # Stage 2: Data Processing
         print("Data Processing started")
         csv_path = os.path.join(output_dir, f"{symbol}_2Y.csv")
         data_processor = DataProcessing(csv_path)
         processed_data = data_processor.process_data()
+
+        # Check if the processed data is valid
+        if processed_data.empty or processed_data["y"].isnull().any():
+            print("Invalid data detected. Falling back to 4 years of data.")
+            start_date = (datetime.now() - timedelta(days=365 * 4)).strftime("%Y-%m-%d")  # Fallback to 4 years
+            processed_ingestion_data = download_and_process_data(symbol, start_date, end_date, output_dir)
+            data_processor = DataProcessing(csv_path)
+            processed_data = data_processor.process_data()
 
         processed_file_path = os.path.join(config["paths"]["processed_dir"], f"{symbol}_Featured.csv")
         processed_data.to_csv(processed_file_path, index=False)
@@ -56,25 +70,24 @@ async def forecast_symbol(symbol: str):
         print("Model Training started")
         xgboost_forecasting = XGBoostForecasting(processed_data, "Open Time", "y", config)
         xgboost_forecasting.preprocess_data()
-        xgboost_forecasting.train_model(training_period=730)
+        xgboost_forecasting.train_model()
 
         # Dynamic forecast period
         historical_days = (processed_data['Open Time'].max() - processed_data['Open Time'].min()).days
-        # Calculate the forecast period based on the available data duration
         if historical_days >= 365 * 5:  # 5 years
             forecast_period = 365 * 2  # 2 years
-        elif historical_days >= 365 * 2:  # 1 year
+        elif historical_days >= 365 * 2:  # 1 yearf
             forecast_period = 365  # 1 year
         elif historical_days >= 365:  # 1 year
             forecast_period = 365  # 1 year
         elif historical_days >= 180:  # 6 months
-            forecast_period = 180 # 6 months
+            forecast_period = 180  # 6 months
         elif historical_days >= 90:  # 3 months
-            forecast_period = 90 # 3 months
+            forecast_period = 90  # 3 months
         elif historical_days >= 30:  # 1 month
-            forecast_period = 30 # 1 month
+            forecast_period = 30  # 1 month
         elif historical_days >= 14:  # 2 weeks
-            forecast_period = 14 # 2 weeks
+            forecast_period = 14  # 2 weeks
         elif historical_days >= 7:  # 1 week
             forecast_period = 7  # 1 week
         else:
@@ -88,8 +101,8 @@ async def forecast_symbol(symbol: str):
         prediction_data = forecast.set_index("ds")["yhat"].to_dict()
 
         # Convert datetime keys to string (YYYY-MM-DD) for JSON serialization
-        historical_data_str = {k.strftime('%Y-%m-%d'): v for k, v in historical_data.items() if pd.notna(k)} #Filter out NaT
-        prediction_data_str = {k.strftime('%Y-%m-%d'): v for k, v in prediction_data.items() if pd.notna(k)} #Filter out NaT
+        historical_data_str = {k.strftime('%Y-%m-%d'): v for k, v in historical_data.items() if pd.notna(k)}  # Filter out NaT
+        prediction_data_str = {k.strftime('%Y-%m-%d'): v for k, v in prediction_data.items() if pd.notna(k)}  # Filter out NaT
 
         response_data = {
             "symbol": symbol,

@@ -3,6 +3,7 @@ import os
 import xgboost as xgb
 import pandas as pd
 from datetime import timedelta
+from sklearn.model_selection import train_test_split
 
 class XGBoostForecasting:
     def __init__(self, data, date_column, target_column, config):
@@ -18,20 +19,31 @@ class XGBoostForecasting:
         self.data["month"] = self.data["ds"].dt.month
         self.data["weekday"] = self.data["ds"].dt.weekday
 
-    def prepare_features(self, training_period=730):
-        last_date = self.data["ds"].max()
-        start_date = last_date - timedelta(days=training_period)
-        training_data = self.data[self.data["ds"] >= start_date]
-        features = training_data[["day", "month", "weekday"]]
-        target = training_data["y"]
-        return features, target, training_data
+    def prepare_features(self):
+        # Split the data into 80% training and 20% testing
+        train_data, test_data = train_test_split(self.data, test_size=0.2, shuffle=False)
+        
+        # Prepare features and target for training
+        features = train_data[["day", "month", "weekday"]]
+        target = train_data["y"]
+        
+        # Prepare features and target for testing
+        test_features = test_data[["day", "month", "weekday"]]
+        test_target = test_data["y"]
+        
+        return features, target, test_features, test_target, train_data, test_data
 
-    def train_model(self, training_period=730):
-        features, target, _ = self.prepare_features(training_period)
+    def train_model(self):
+        features, target, test_features, test_target, _, _ = self.prepare_features()
         self.model = xgb.XGBRegressor(
             objective="reg:squarederror", n_estimators=1000, learning_rate=0.01, max_depth=6, subsample=0.8, colsample_bytree=0.8
         )
         self.model.fit(features, target)
+        
+        # Optionally, you can evaluate the model on the test set
+        test_predictions = self.model.predict(test_features)
+        test_rmse = ((test_target - test_predictions) ** 2).mean() ** 0.5
+        print(f"Test RMSE: {test_rmse}")
 
     def forecast(self, future_periods=180):
         last_date = self.data["ds"].max()
